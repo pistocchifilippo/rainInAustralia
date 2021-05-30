@@ -1,0 +1,93 @@
+---
+title: "visulization"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='Figs/', echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+```{r}
+library(FactoMineR)
+scaled <- read.csv(file = 'scaled.csv',row.names = 1)
+```
+
+
+# Visulization
+
+
+## LDA
+first we use numerical variables (except location, wind direction, season) to  apply lda.
+```{r, message=FALSE}
+library(MASS)
+(model.lda <- lda(RainTomorrow~., data = scaled[,-c(1,5,7,8,17,19)]))
+```
+
+Prior probabilities of groups defines the prior probability of the response classes for an observation. This shows 77.84 % of rain tomorrow and 22.16 % of not rain tomorrow.
+
+Group Means defines the mean value (µk) for response classes for a particular X=x. This indicates means values of different features when they fall to a particular response class. 
+
+We see a clear difference between all the variables: they have opposite mean values for class RainTomorrow class. Especially for Humidity3pm, Humidity9am, Rainfall,Pressure9am, their absolute values vary greatly. The more the difference between mean, the easier it will be to classify observation. We can assume humidity, rainfall, pressure have more impact on the probabilities of rain on the second day; while temperature on 9am and minimum temperature have less impact.
+```{r}
+par(mar=c(7, 4.1, 4.1, 2.1))
+barplot(model.lda$means, beside=TRUE, legend=TRUE, las=2, col=c("#FC4E07","#00AFBB"))
+```
+
+
+### predictions
+
+```{r}
+##Predicting training results.
+prediction = predict(model.lda, data=scaled)
+mean(prediction$class==scaled$RainTomorrow)
+table(Predicted=prediction$class, RainTomorrow=scaled$RainTomorrow)
+```
+
+The below plot shows how the response class has been classified by the LDA classifier. The X-axis shows the value of line defined by the co-efficient of linear discriminant for LDA model. The two groups are the groups for response classes.
+```{r, message=FALSE}
+ldahist(prediction$x[,1], g= prediction$class)
+```
+
+The below figure shows how the data has been classified. The Predicted Group-No and Group-Yes has been colored with actual classification with red and blue color. The mix of color in the Group shows the incorrect classification prediction.
+```{r}
+par(mfrow=c(1,1))
+plot(prediction$x[,1], prediction$class, col=ifelse(scaled$RainTomorrow=="No","#FC4E07","#00AFBB"))
+```
+
+
+## PCA
+apply pca only on the numerical variables
+``` {r, include=TRUE, results='hide'}
+library(factoextra)
+res.pca <- prcomp(scaled[,-c(1,5,7,8,17,18,19)], scale = TRUE)
+```
+
+```{r}
+fviz_pca_biplot(res.pca, repel = TRUE,
+                col.var = "#FC4E07", # Variables color
+                col.ind = "yellow",  # Individuals color
+                title="biplot - PCA",
+                label="var",
+                alpha.ind = 0.5)
+```
+
+## MFA 
+divide variables into 8 group
+```{r}
+res.mfa <- MFA(scaled[,c(1,2,3,15,16,5,7,8,6,9,10,11,12,13,14,17,18,19)],group=c(1,4,3,3,2,2,2,1),type=c("n","s","n",rep("s",3),rep("n",2)),name.group=c("Location","Temperature","WinDir","WinSpeed","Humidity","Pressure", "RainToday/Tomorrow", "Season"))
+```
+
+
+## MCA
+
+only use categorical variables to apply mca, RainToday and RainTomorrow as supplementary variables
+```{r}
+res.mca <- MCA(scaled[,c(1,5,7,8,17,18,19)],quali.sup=5:6)
+```
+
+
