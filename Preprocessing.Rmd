@@ -18,12 +18,11 @@ library(cluster)
 library(factoextra)
 library(FactoMineR)
 library(mclust)
-library(caret)
 ```
 
 
-In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by numeric variables, therefore not numeric data will be represented with the one hot encoding format.
-The analysis will be performed considering climatic descriptors, discarding the city and the number of the sampling.
+In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it to execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by **numeric variables**, therefore not numeric data will be discarded.
+The analysis will be performed considering jsut climatic descriptors.
 ```{r}
 # Need caret library
 
@@ -32,91 +31,82 @@ set.seed(123)
 
 scaled <- read.csv('scaled.csv')
 
-# Removing the first two column describing the number of the row and the city
-scaled <- scaled[3:ncol(scaled)]
+# Removing the first column describing the number of the row
+scaled <- scaled[2:ncol(scaled)]
 
-# Preparing data for MBC
 # Keeping just numeric values
-df.mbc <- scaled %>% dplyr::select(where(is.numeric))
-# The column RainToday RainTomorrow and Season
-x <- scaled[16:18]
-dmy <- dummyVars(" ~ .", data = x)
-trsf <- data.frame(predict(dmy, newdata = x))
-df.mbc <- cbind(df.mbc,trsf)
-df.mbc <-df.mbc[sample(nrow(df.mbc),20000), ]
+df <- scaled %>% dplyr::select(where(is.numeric))
 
-# Preparing data for HC
-dmy <- dummyVars(" ~ .", data = scaled)
-trsf <- data.frame(predict(dmy, newdata = scaled))
-
-# Random sampling to make the clustering computation fit in my machine
-
-df.pc <- trsf[sample(nrow(trsf),20000), ]
+# Random sampling
+df <- df[sample(nrow(df),1000), ]
 ```
 
 The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
+It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
 ```{r}
-summary(df.pc)
-df.pc
+k2 <- kmeans(df, centers = 2, nstart = 25)
+k3 <- kmeans(df, centers = 3, nstart = 25)
+k4 <- kmeans(df, centers = 4, nstart = 25)
+k5 <- kmeans(df, centers = 5, nstart = 25)
 
-k2 <- kmeans(df.pc, centers = 2, nstart = 25)
-k3 <- kmeans(df.pc, centers = 3, nstart = 25)
-k4 <- kmeans(df.pc, centers = 4, nstart = 25)
-k5 <- kmeans(df.pc, centers = 5, nstart = 25)
-
-p1 <- fviz_cluster(k2, geom = "point", data = df.pc) + ggtitle("k = 2")
-p2 <- fviz_cluster(k3, geom = "point",  data = df.pc) + ggtitle("k = 3")
-p3 <- fviz_cluster(k4, geom = "point",  data = df.pc) + ggtitle("k = 4")
-p4 <- fviz_cluster(k5, geom = "point",  data = df.pc) + ggtitle("k = 5")
+p1 <- fviz_cluster(k2, geom = "point", data = df) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = df) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = df) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = df) + ggtitle("k = 5")
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 ```
 
-To determine the optimal number of clusters the silhouette method have been adopted, with the respective code `method = "silhouette"`. The output suggest an optimal number of clusters equal to two.
+To determine the optimal number of clusters we adopted the **silhouette** method, with the respective code `method = "silhouette"`. The output suggest an optimal number of clusters equal to two.
 ```{r}
-fviz_nbclust(df.pc, kmeans, method = "silhouette")
+fviz_nbclust(df, kmeans, method = "silhouette")
+```
+
+The object of our analysis then will be based on this plot.
+```{r}
+fviz_cluster(k2, geom = "point", data = df)
 ```
 
 As the silhouette method suggested will be studied the clustering with k equals to 2. For the interpretation of the obtained results, showing the centers `k2$centers` will help to associate each cluster to particular feature.
-The cluster number 1 seems describing the records with warmer environments and the cluster number 2 the record with lower temperature since `MinTemp` and `MaxTemp` are way higher in the first cluster than in the second one. This deduction is actually right because the first cluster represent the most of the summer season and the second cluster represents the most of the winter season (`Seasonsummer` and `Seasonwinter`).
-
+It is clear that the first cluster (1) is more representative for the high **temperature** sampling while the second cluster (2) is more representative for the low temperatures. High temperature cluster and low temperature cluster differ also in term of **humidity** and **pressure**, presenting respectively low and high values.
 ```{r}
-k2$centers[,c('MinTemp','MaxTemp','RainTodayNo','RainTodayYes','RainTomorrowNo','RainTomorrowYes','Seasonfall','Seasonspring','Seasonsummer','Seasonwinter')]
+k2$centers
 ```
 
-Another trial to identify other kind of clusters have been a mixed approach, using a hierarchical clustering to determine the number of clusters. The number of clusters then have been used to set up the `k` parameter in K-Means algorithm (`hkmeans`).
+Another trial to identify other kind of clusters shapes have been done applying a mixed approach, using a hierarchical clustering to determine the number of clusters. The number of clusters then have been used to set up the `k` parameter in K-Means algorithm (`hkmeans`).
 ```{r}
-res.hk <-hkmeans(df.pc, 4)
+res.hk <-hkmeans(df, 4)
 fviz_cluster(res.hk, palette = "jco", repel = TRUE, ggtheme = theme_classic())
 ```
-Cluster 4 represents mostly the rainy day `RainTodayYes`. The feature of a rainy day then seems being that there is a probability of rain the day after (`RainTomorrowYes`) higher then non rainy days. We can also notice that the rainy days are at most in summer and fall.
+Adopting a higher number of cluster is easier to notice a higher variation in term of clusters specialization.
+The most important cluster in this analysis is clearly the number 3 since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
 ```{r}
 res.hk$centers
 ```
 
-
 Since the biggest part of the dataset shows a gaussian distribution, a Gaussian finite mixture model fitted by EM algorithm should achieve good results in terms of clustering.
 ```{r}
-summary(df.mbc)
-df.mbc
-
-mc <- Mclust(df.mbc)
-mc2 <- Mclust(df.mbc,2)
-mc4 <- Mclust(df.mbc,4)
-
-fviz_mclust(mc2, "uncertainty", palette = "jco")
-fviz_mclust(mc4, "uncertainty", palette = "jco")
-
+mc<- Mclust(df)
+fviz_mclust(mc, "uncertainty", palette = "jco")
 ```
+Gaussian mixture produced as output five clusters of shape **VEV**.
 ```{r}
 mc$G
+mc$modelName
 ```
 
+Now let's start interpreting the output of the clustering. Even this time there is one cluster over representative for the variable rainfall, presenting even higher value than before. As before the features presented by rainy days are almost the same, with the difference that this time the huimidity is way higher but than before but the pressure is not that low.
 ```{r}
-mc2$parameters$mean
+mc$parameters$mean
 ```
 
-
-
+Maybe integrate or not...
 ```{r}
-mc4$parameters$mean
+d <- dist(df, method = "euclidean")
+
+fviz_nbclust(df, FUN = hcut, method = "silhouette")
+
+hc.single <- hclust(d, method="single")
+clust2 <- cutree(hc.complete, k = 2)
+
+fviz_cluster(list(data = d, cluster = clust2))
 ```
