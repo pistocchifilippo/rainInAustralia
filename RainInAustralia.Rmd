@@ -1,0 +1,511 @@
+---
+title: "RainInAustralia"
+author: "Filippo, Antoni, Cristina, Mengxue"
+date: "6/11/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+rm(list = ls())
+```
+
+```{r global_options, include=FALSE}
+knitr::opts_chunk$set(fig.path='Figs/', echo=FALSE, warning=FALSE, message=FALSE)
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(kableExtra)
+library(gridExtra)
+library(stats)
+library(factoextra)
+library(FactoMineR)
+library(mclust)
+library(cluster)
+```
+
+# Dataset description
+
+The dataset is compromised of 23 variables, and is a timeseries of australian weather, which the purpose of predicting whether it would rain tomorrow.
+
+Date- Categorical variable, when the measurements were taken
+Location - Categorical variable, where the measurements were taken
+MinTemp - Numerical variable, minimal temperature observed that day
+MaxTemp - Numerical variable, maximal temperature observed that day
+Rainfall -
+Evaporation -
+Sunshine -
+WindGustDir - 
+WindGustSpeed -
+WindDir9am -
+WindDir3pm -
+WindSpeed9am -
+Windspeed3pm -
+Humidity9am -
+Humidity3pm -
+Pressure9am -
+Pressure3pm -
+Cloud9am -
+Cloud3pm -
+Temp9am - Numerical variable, temperature in Celsius at 9am
+Temp3pm - Numerical variable, temperature in Celsius at 3pm
+RainToday - Categorical variable, whether it rained today or not
+RainTomorrow - Categorical variable, whether tomorrow will rain or not
+
+```{r}
+
+set.seed(1)
+
+australianWeather <- read.csv(file = 'weatherAUS.csv')
+```
+
+We perform a basic visualization, first of the correlation between variables, which isn't significant with the exception of variables recorded in the same day, that is, those measurements taken at 9am and 3pm, this helps us see that there's an important temporal component in the same day.
+```{r}
+library(naniar)
+library(ggplot2)
+library(reshape2)
+library(dplyr)
+library(timelineR)
+library(tseries)
+
+nums <- unlist(lapply(australianWeather, is.numeric))  
+
+australianWeather$Date=as.POSIXct(australianWeather$Date)
+
+
+corMat=cor(australianWeather[,nums], method = c("pearson"),use = "complete.obs")
+
+
+melted_corMat <- melt(corMat)
+
+ggplot(data = melted_corMat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+gg_miss_var(australianWeather,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
+
+
+```
+We perform a special method of data imputation, following the timeseries plot of the WinDir9am, WindDir3pm and WindGustDir, we can see that if the last day was a certain category, it will probably be that same category. So we choose this as our method of imputation for categorical NAs.
+
+```{r}
+library(zoo)
+
+australianWeatherTimeseriesPlot = australianWeather
+
+australianWeatherTimeseriesPlot=filter(australianWeather, Location %in% "Albury")
+
+data_cols = c("Date","WindDir9am","WindDir3pm","WindGustDir")
+
+start_time = as.POSIXct("2010-01-01")
+end_time = as.POSIXct("2011-01-01")
+
+plot_grob=plot_timeline(australianWeatherTimeseriesPlot,data_cols = data_cols,start_time=start_time,end_time=end_time)
+
+australianWeather$WindDir9am=na.locf(australianWeather$WindDir9am, fromLast = TRUE,na.rm=FALSE)
+australianWeather$WindDir3pm=na.locf(australianWeather$WindDir3pm, fromLast = TRUE,na.rm=FALSE)
+australianWeather$WindGustDir=na.locf(australianWeather$WindGustDir, fromLast = TRUE,na.rm=FALSE)
+
+```
+
+
+We remove the columns with over 30% NAs, as imputation might be too imprecise when over a third of data is missing, and dropping 30% of data might be too excesive. We also remove all NAs, which are 2% from RainToday and RainTomorrow, as RainTomorrow is the variable to predict, and any imputation will change the real space, and RainToday because it is highly rellated to RainTomorrow and might worsen our prediction.
+To reduce the effect of the temporality of data we transform Date into the new variable Season, which is an approximation of the season to which the date belongs to.
+
+```{r}
+library(zoo)
+library(caret)
+library(tidyr)
+gg_miss_var(australianWeather,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
+australianWeather=australianWeather %>% drop_na(RainToday)
+australianWeather=australianWeather %>% drop_na(RainTomorrow)
+
+
+yq <- as.yearqtr(as.yearmon(australianWeather$Date, "%Y-%m-%d") + 1/12)
+
+
+australianWeather$Season <- factor(format(yq, "%q"), levels = 1:4, 
+                labels = c("winter", "spring", "summer", "fall"))
+
+australianWeather <- subset (australianWeather, select = -Date)
+
+summary(australianWeather)
+
+australianWeather <- subset (australianWeather, select = -c(Evaporation,Sunshine,Cloud3pm,Cloud9am))
+
+trainIndex <- createDataPartition(australianWeather$RainTomorrow, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+australianWeatherTrain <- australianWeather[ trainIndex,]
+australianWeatherTest  <- australianWeather[-trainIndex,]
+gg_miss_var(australianWeather,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
+```
+We perform the imputation of the missing continous data, however, to avoid data leakage from train into test, we separate the data into train and test, and build the imputation MICE predictive mean model on the train data, and apply it to both train and test.
+
+```{r eval=FALSE}
+
+library(mice)
+library(tidyr)
+
+completeVector=c(1:nrow(australianWeather))
+
+completeVector[trainIndex]=TRUE
+completeVector[-trainIndex]=FALSE
+
+cVec=!(!completeVector)
+
+imputed <- mice(australianWeather, m=5,ignore = cVec, maxit = 5, method = 'pmm', seed = 500)
+
+australianWeatherNoNA=complete(imputed,1)
+
+gg_miss_var(australianWeatherNoNA,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+gg_miss_var(australianWeatherNoNA,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
+```
+
+We plot the density distributions of the data, we can observe a gaussian distribution in MinTemp, MaxTemp, Humidity3pm, Temp9am and Temp3pm. A mixture of gaussians can be observed in Humidity9am, and, if we consider each peak in the WindSpeed9am and WindSpeed3pm a gaussian, a extreme version of a mixture of gaussians is present in these variables. 
+All the categorical variables, with the exception of RainTomorrow and RainToday have mostly equal distributions, the only major imbalance being in these two variables.
+
+Rainfall does not conform to a Gaussian distribution, and a transformation must be applied specifically for it.
+```{r eval=FALSE}
+
+library(gridExtra)
+summary(australianWeatherNoNA)
+
+g1 <- ggplot(australianWeatherNoNA, aes(x = Season)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+
+g2 <- ggplot(australianWeatherNoNA, aes(x = WindGustDir)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g3 <- ggplot(australianWeatherNoNA, aes(x = WindDir9am)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g4 <- ggplot(australianWeatherNoNA, aes(x = WindDir3pm)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g5 <- ggplot(australianWeatherNoNA, aes(x = RainToday)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g6 <- ggplot(australianWeatherNoNA, aes(x = RainTomorrow)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+
+
+g7 <- ggplot(australianWeatherNoNA, aes(x = MinTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g8 <- ggplot(australianWeatherNoNA, aes(x = MaxTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g9 <- ggplot(australianWeatherNoNA, aes(x = Rainfall)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g10 <- ggplot(australianWeatherNoNA, aes(x = WindSpeed9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g11 <- ggplot(australianWeatherNoNA, aes(x = WindSpeed3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g12 <- ggplot(australianWeatherNoNA, aes(x = Humidity9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g13 <- ggplot(australianWeatherNoNA, aes(x = Humidity3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g14 <- ggplot(australianWeatherNoNA, aes(x = Temp9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g15 <- ggplot(australianWeatherNoNA, aes(x = Temp3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+
+
+grid.arrange(arrangeGrob(g1 + theme(legend.position="none"), g2 + theme(legend.position="none"),
+g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + theme(legend.position="none"), g6 + theme(legend.position="none"), g7 + theme(legend.position="none"), g8 + theme(legend.position="none"), g9 + theme(legend.position="none"), g10 + theme(legend.position="none"), g11 + theme(legend.position="none"), g12 + theme(legend.position="none"), g13 + theme(legend.position="none"), g14 + theme(legend.position="none"), g15 + theme(legend.position="none"),nrow=4),heights=c(10, 1))
+
+```
+
+A logarithmic transformation is applied to the rainfall variable, adding a constant value of 1 to deal with zeroes, this is to get Rainfall to a shape closer to a Gaussian, being the variable most far from a Gaussian distribution.
+
+We scale the data to a mean of 0 and variance of 1, so as to be compatible with methods sensible to distance metrics.
+```{r eval=FALSE}
+
+australianWeatherNoNA$Rainfall=log(australianWeatherNoNA$Rainfall+1)
+
+scaled <- lapply(australianWeatherNoNA, function(x) if(is.numeric(x)){
+                     scale(x, center=TRUE, scale=TRUE)
+                      } else x)
+scaled=as.data.frame(scaled)
+```
+
+Our new data retains its original shape with the exception of Rainfall, which, even when transformed, is still far away from a Gaussian distribution, but it is however, closer to it.
+```{r eval=FALSE}
+
+library(gridExtra)
+summary(scaled)
+
+g1 <- ggplot(scaled, aes(x = Season)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+
+g2 <- ggplot(scaled, aes(x = WindGustDir)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g3 <- ggplot(scaled, aes(x = WindDir9am)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g4 <- ggplot(scaled, aes(x = WindDir3pm)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g5 <- ggplot(scaled, aes(x = RainToday)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g6 <- ggplot(scaled, aes(x = RainTomorrow)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+
+
+g7 <- ggplot(scaled, aes(x = MinTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g8 <- ggplot(scaled, aes(x = MaxTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g9 <- ggplot(scaled, aes(x = Rainfall)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g10 <- ggplot(scaled, aes(x = WindSpeed9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g11 <- ggplot(scaled, aes(x = WindSpeed3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g12 <- ggplot(scaled, aes(x = Humidity9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g13 <- ggplot(scaled, aes(x = Humidity3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g14 <- ggplot(scaled, aes(x = Temp9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g15 <- ggplot(scaled, aes(x = Temp3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+
+
+grid.arrange(arrangeGrob(g1 + theme(legend.position="none"), g2 + theme(legend.position="none"),
+g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + theme(legend.position="none"), g6 + theme(legend.position="none"), g7 + theme(legend.position="none"), g8 + theme(legend.position="none"), g9 + theme(legend.position="none"), g10 + theme(legend.position="none"), g11 + theme(legend.position="none"), g12 + theme(legend.position="none"), g13 + theme(legend.position="none"), g14 + theme(legend.position="none"), g15 + theme(legend.position="none"),nrow=4),heights=c(10, 1))
+
+```
+
+While there appear to be some outliers, all the outliers in the boxplot almost in its entirety are extremely close together, suggesting highly skewed distributions, not outliers.
+```{r eval=FALSE}
+
+nums <- unlist(lapply(scaled, is.numeric))  
+ggplot(stack(scaled[,nums]), aes(x = ind, y = values)) +
+  geom_boxplot()
+
+```
+
+Train and test sets are separated for further use in the classification section.
+```{r eval=FALSE}
+preprocessedTrain=scaled[trainIndex,]
+preprocessedTest=scaled[-trainIndex,]
+```
+
+
+```{r eval=FALSE}
+write.csv(scaled,"scaled.csv", row.names = TRUE)
+write.csv(preprocessedTrain,"scaledTrain.csv", row.names = TRUE)
+write.csv(preprocessedTest,"scaledTest.csv", row.names = TRUE)
+```
+
+**To make fiesable in my computer the analysis the dataset have been sampled**
+```{r}
+
+# To have reproducibility of the sampling
+set.seed(123)
+
+scaled <- read.csv('scaled.csv')
+
+# Random sampling
+scaled <- scaled[sample(nrow(scaled),1000), ]
+```
+
+# Visualization
+```{r}
+library(FactoMineR)
+scaled <- read.csv(file = 'scaled.csv',row.names = 1)
+scaled <- scaled[sample(nrow(scaled),1000), ]
+```
+
+## LDA
+first we use numerical variables (except location, wind direction, season) to  apply lda.
+```{r, message=FALSE}
+library(MASS)
+(model.lda <- lda(RainTomorrow~., data = scaled[,-c(1,5,7,8,17,19)]))
+```
+
+Prior probabilities of groups defines the prior probability of the response classes for an observation. This shows 77.84 % of rain tomorrow and 22.16 % of not rain tomorrow.
+
+Group Means defines the mean value (µk) for response classes for a particular X=x. This indicates means values of different features when they fall to a particular response class. 
+
+We see a clear difference between all the variables: they have opposite mean values for class RainTomorrow class. Especially for Humidity3pm, Humidity9am, Rainfall,Pressure9am, their absolute values vary greatly. The more the difference between mean, the easier it will be to classify observation. We can assume humidity, rainfall, pressure have more impact on the probabilities of rain on the second day; while temperature on 9am and minimum temperature have less impact.
+```{r}
+par(mar=c(7, 4.1, 4.1, 2.1))
+barplot(model.lda$means, beside=TRUE, legend=TRUE, las=2, col=c("#FC4E07","#00AFBB"))
+```
+
+
+### predictions
+
+```{r}
+##Predicting training results.
+prediction = predict(model.lda, data=scaled)
+mean(prediction$class==scaled$RainTomorrow)
+table(Predicted=prediction$class, RainTomorrow=scaled$RainTomorrow)
+```
+
+The below plot shows how the response class has been classified by the LDA classifier. The X-axis shows the value of line defined by the co-efficient of linear discriminant for LDA model. The two groups are the groups for response classes.
+```{r, message=FALSE}
+ldahist(prediction$x[,1], g= prediction$class)
+```
+
+The below figure shows how the data has been classified. The Predicted Group-No and Group-Yes has been colored with actual classification with red and blue color. The mix of color in the Group shows the incorrect classification prediction.
+```{r}
+par(mfrow=c(1,1))
+plot(prediction$x[,1], prediction$class, col=ifelse(scaled$RainTomorrow=="No","#FC4E07","#00AFBB"))
+```
+
+
+## PCA
+apply pca only on the numerical variables
+``` {r, include=TRUE, results='hide'}
+library(factoextra)
+res.pca <- prcomp(scaled[,-c(1,5,7,8,17,18,19)], scale = TRUE)
+```
+
+```{r}
+fviz_pca_biplot(res.pca, repel = TRUE,
+                col.var = "#FC4E07", # Variables color
+                col.ind = "yellow",  # Individuals color
+                title="biplot - PCA",
+                label="var",
+                alpha.ind = 0.5)
+```
+
+## MFA 
+Divide variables into 8 group.
+```{r}
+res.mfa <- MFA(scaled[,c(1,2,3,15,16,5,7,8,6,9,10,11,12,13,14,17,18,19)],group=c(1,4,3,3,2,2,2,1),type=c("n","s","n",rep("s",3),rep("n",2)),name.group=c("Location","Temperature","WinDir","WinSpeed","Humidity","Pressure", "RainToday/Tomorrow", "Season"))
+```
+
+
+## MCA
+
+only use categorical variables to apply mca, RainToday and RainTomorrow as supplementary variables
+```{r}
+res.mca <- MCA(scaled[,c(1,5,7,8,17,18,19)],quali.sup=5:6)
+```
+
+#Clustering
+
+In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it to execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by **numeric variables**, therefore not numeric data will be discarded.
+The analysis will be performed considering just climatic descriptors.
+
+```{r}
+# Need caret library
+
+# To have reproducibility of the sampling
+set.seed(123)
+
+scaled <- read.csv('scaled.csv')
+
+# Removing the first column describing the number of the row
+scaled <- scaled[2:ncol(scaled)]
+
+# Keeping just numeric values
+df <- scaled %>% dplyr::select(where(is.numeric))
+
+# Random sampling
+df <- df[sample(nrow(df),1000), ]
+```
+
+The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
+It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
+
+```{r}
+k2 <- kmeans(df, centers = 2, nstart = 25)
+k3 <- kmeans(df, centers = 3, nstart = 25)
+k4 <- kmeans(df, centers = 4, nstart = 25)
+k5 <- kmeans(df, centers = 5, nstart = 25)
+
+p1 <- fviz_cluster(k2, geom = "point", data = df) + ggtitle("k = 2")
+p2 <- fviz_cluster(k3, geom = "point",  data = df) + ggtitle("k = 3")
+p3 <- fviz_cluster(k4, geom = "point",  data = df) + ggtitle("k = 4")
+p4 <- fviz_cluster(k5, geom = "point",  data = df) + ggtitle("k = 5")
+grid.arrange(p1, p2, p3, p4, nrow = 2)
+```
+
+To determine the optimal number of clusters we adopted the **silhouette** method, with the respective code `method = "silhouette"`. The output suggest an optimal number of clusters equal to two.
+
+```{r}
+fviz_nbclust(df, kmeans, method = "silhouette")
+```
+
+The object of our analysis then will be based on this plot.
+
+```{r}
+fviz_cluster(k2, geom = "point", data = df)
+```
+
+As the silhouette method suggested will be studied the clustering with k equals to 2. For the interpretation of the obtained results, showing the centers `k2$centers` will help to associate each cluster to particular feature.
+It is clear that the first cluster (1) is more representative for the high **temperature** sampling while the second cluster (2) is more representative for the low temperatures. High temperature cluster and low temperature cluster differ also in term of **humidity** and **pressure**, presenting respectively low and high values.
+```{r}
+k2$centers
+```
+
+Another trial to identify other kind of clusters shapes have been done applying a mixed approach, using a hierarchical clustering to determine the shape of clusters. The number of clusters will be specified by the parameter `k=4`. This time we will observe the characteristic of four different clusters.
+
+```{r}
+res.hk <- hkmeans(df, k=4)
+fviz_cluster(res.hk, palette = "jco", repel = TRUE, ggtheme = theme_classic())
+```
+
+Adopting a higher number of cluster is easier to notice a higher variation in term of clusters specialization.
+The most important cluster in this analysis is clearly the number 3 since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
+```{r}
+res.hk$centers
+```
+
+Since the biggest part of the dataset shows a gaussian distribution, a Gaussian finite mixture model fitted by EM algorithm should achieve good results in terms of clustering.
+
+```{r}
+mc<- Mclust(df)
+fviz_mclust(mc, "uncertainty", palette = "jco")
+```
+Gaussian mixture produced as output five clusters of shape **VEV**.
+```{r}
+mc$G
+mc$modelName
+```
+
+Finally let's interpret the output of the clustering. Even this time there is one cluster over representative for the variable rainfall, presenting even higher value than before. As before the features presented by rainy days are almost the same, with the difference that this time the humidity is way higher but than before but the pressure is not that low.
+```{r}
+mc$parameters$mean
+```

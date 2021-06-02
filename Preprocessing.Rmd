@@ -9,104 +9,134 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r}
-library(dplyr)
+australianWeather <- read.csv(file = 'weatherAUS.csv')
+```
+
+
+```{r}
+library(naniar)
 library(ggplot2)
-library(kableExtra)
-library(gridExtra)
-library(stats)
-library(cluster)
-library(factoextra)
-library(FactoMineR)
-library(mclust)
+library(reshape2)
+
+nums <- unlist(lapply(australianWeather, is.numeric))  
+
+corMat=cor(australianWeather[,nums], method = c("pearson"),use = "complete.obs")
+
+
+melted_corMat <- melt(corMat)
+
+ggplot(data = melted_corMat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile()
+
+gg_miss_var(australianWeather,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+```
+
+We remove the columns with over 30% NAs and transform Date into Season
+```{r}
+library(zoo)
+  
+yq <- as.yearqtr(as.yearmon(australianWeather$Date, "%Y-%m-%d") + 1/12)
+australianWeather$Season <- factor(format(yq, "%q"), levels = 1:4, 
+                labels = c("winter", "spring", "summer", "fall"))
+
+australianWeather <- subset (australianWeather, select = -Date)
+
+summary(australianWeather)
+
+australianWeather <- subset (australianWeather, select = -c(Evaporation,Sunshine,Cloud3pm,Cloud9am))
+
+trainIndex <- createDataPartition(australianWeather$RainTomorrow, p = .8, 
+                                  list = FALSE, 
+                                  times = 1)
+australianWeatherTrain <- australianWeather[ trainIndex,]
+australianWeatherTest  <- australianWeather[-trainIndex,]
+
+
+```
+We use MICE to apply predictive mean matching to fill our numeric NAs, drop the NAs in non-numeric columns, and scale the dataset
+```{r}
+
+library(mice)
+library(tidyr)
+library(caret)
+set.seed(1)
+
+imputed_Data <- mice(australianWeatherTrain, m=1, maxit = 50, method = 'pmm', seed = 500)
+
+australianWeatherNoNA=complete(imputed_Data,1)
+
+australianWeatherNoNA=drop_na(australianWeatherNoNA)
+
+gg_miss_var(australianWeatherNoNA,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
+scaled <- lapply(australianWeatherNoNA, function(x) if(is.numeric(x)){
+                     scale(x, center=TRUE, scale=TRUE)
+                      } else x)
+scaled=as.data.frame(scaled)
 ```
 
 
-In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it to execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by **numeric variables**, therefore not numeric data will be discarded.
-The analysis will be performed considering jsut climatic descriptors.
 ```{r}
-# Need caret library
+summary(scaled)
 
-# To have reproducibility of the sampling
-set.seed(123)
+g1 <- ggplot(scaled, aes(x = Season)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
 
-scaled <- read.csv('scaled.csv')
+g2 <- ggplot(scaled, aes(x = WindGustDir)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g3 <- ggplot(scaled, aes(x = WindDir9am)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g4 <- ggplot(scaled, aes(x = WindDir3pm)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g5 <- ggplot(scaled, aes(x = RainToday)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
+g6 <- ggplot(scaled, aes(x = RainTomorrow)) +
+  geom_bar(alpha = 0.7) + theme_bw() +
+  theme(legend.position="bottom")
 
-# Removing the first column describing the number of the row
-scaled <- scaled[2:ncol(scaled)]
 
-# Keeping just numeric values
-df <- scaled %>% dplyr::select(where(is.numeric))
+g7 <- ggplot(scaled, aes(x = MinTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g8 <- ggplot(scaled, aes(x = MaxTemp)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position="none")
+g9 <- ggplot(scaled, aes(x = Rainfall)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g10 <- ggplot(scaled, aes(x = WindSpeed9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g11 <- ggplot(scaled, aes(x = WindSpeed3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g12 <- ggplot(scaled, aes(x = Humidity9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g13 <- ggplot(scaled, aes(x = Humidity3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g14 <- ggplot(scaled, aes(x = Temp9am)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
+g15 <- ggplot(scaled, aes(x = Temp3pm)) +
+  geom_density(alpha = 0.7) + theme_bw() +
+  theme(legend.position ="none" )
 
-# Random sampling
-df <- df[sample(nrow(df),1000), ]
+
+grid.arrange(arrangeGrob(g1 + theme(legend.position="none"), g2 + theme(legend.position="none"),
+g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + theme(legend.position="none"), g6 + theme(legend.position="none"), g7 + theme(legend.position="none"), g8 + theme(legend.position="none"), g9 + theme(legend.position="none"), g10 + theme(legend.position="none"), g11 + theme(legend.position="none"), g12 + theme(legend.position="none"), g13 + theme(legend.position="none"), g14 + theme(legend.position="none"), g15 + theme(legend.position="none"),nrow=4),heights=c(10, 1))
+
 ```
 
-The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
-It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
+
 ```{r}
-k2 <- kmeans(df, centers = 2, nstart = 25)
-k3 <- kmeans(df, centers = 3, nstart = 25)
-k4 <- kmeans(df, centers = 4, nstart = 25)
-k5 <- kmeans(df, centers = 5, nstart = 25)
-
-p1 <- fviz_cluster(k2, geom = "point", data = df) + ggtitle("k = 2")
-p2 <- fviz_cluster(k3, geom = "point",  data = df) + ggtitle("k = 3")
-p3 <- fviz_cluster(k4, geom = "point",  data = df) + ggtitle("k = 4")
-p4 <- fviz_cluster(k5, geom = "point",  data = df) + ggtitle("k = 5")
-grid.arrange(p1, p2, p3, p4, nrow = 2)
-```
-
-To determine the optimal number of clusters we adopted the **silhouette** method, with the respective code `method = "silhouette"`. The output suggest an optimal number of clusters equal to two.
-```{r}
-fviz_nbclust(df, kmeans, method = "silhouette")
-```
-
-The object of our analysis then will be based on this plot.
-```{r}
-fviz_cluster(k2, geom = "point", data = df)
-```
-
-As the silhouette method suggested will be studied the clustering with k equals to 2. For the interpretation of the obtained results, showing the centers `k2$centers` will help to associate each cluster to particular feature.
-It is clear that the first cluster (1) is more representative for the high **temperature** sampling while the second cluster (2) is more representative for the low temperatures. High temperature cluster and low temperature cluster differ also in term of **humidity** and **pressure**, presenting respectively low and high values.
-```{r}
-k2$centers
-```
-
-Another trial to identify other kind of clusters shapes have been done applying a mixed approach, using a hierarchical clustering to determine the number of clusters. The number of clusters then have been used to set up the `k` parameter in K-Means algorithm (`hkmeans`).
-```{r}
-res.hk <-hkmeans(df, 4)
-fviz_cluster(res.hk, palette = "jco", repel = TRUE, ggtheme = theme_classic())
-```
-Adopting a higher number of cluster is easier to notice a higher variation in term of clusters specialization.
-The most important cluster in this analysis is clearly the number 3 since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
-```{r}
-res.hk$centers
-```
-
-Since the biggest part of the dataset shows a gaussian distribution, a Gaussian finite mixture model fitted by EM algorithm should achieve good results in terms of clustering.
-```{r}
-mc<- Mclust(df)
-fviz_mclust(mc, "uncertainty", palette = "jco")
-```
-Gaussian mixture produced as output five clusters of shape **VEV**.
-```{r}
-mc$G
-mc$modelName
-```
-
-Now let's start interpreting the output of the clustering. Even this time there is one cluster over representative for the variable rainfall, presenting even higher value than before. As before the features presented by rainy days are almost the same, with the difference that this time the huimidity is way higher but than before but the pressure is not that low.
-```{r}
-mc$parameters$mean
-```
-
-Maybe integrate or not...
-```{r}
-d <- dist(df, method = "euclidean")
-
-fviz_nbclust(df, FUN = hcut, method = "silhouette")
-
-hc.single <- hclust(d, method="single")
-clust2 <- cutree(hc.complete, k = 2)
-
-fviz_cluster(list(data = d, cluster = clust2))
+preprocessedTrain=scaled[trainIndex]
+preprocessedTest=scaled[-trainIndex]
 ```
