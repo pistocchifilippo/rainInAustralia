@@ -489,7 +489,7 @@ fviz_cluster(res.hk, palette = "jco", repel = TRUE, ggtheme = theme_classic())
 ```
 
 Adopting a higher number of cluster is easier to notice a higher variation in term of clusters specialization.
-The most important cluster in this analysis is clearly the number 3 since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
+The most important cluster in this analysis is clearly the number (2) since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
 ```{r}
 res.hk$centers
 ```
