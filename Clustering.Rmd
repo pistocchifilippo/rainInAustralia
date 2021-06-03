@@ -14,10 +14,10 @@ library(ggplot2)
 library(kableExtra)
 library(gridExtra)
 library(stats)
-library(cluster)
 library(factoextra)
 library(FactoMineR)
 library(mclust)
+library(cluster)
 ```
 
 

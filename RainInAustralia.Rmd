@@ -446,6 +446,8 @@ df <- scaled %>% dplyr::select(where(is.numeric))
 df <- df[sample(nrow(df),1000), ]
 ```
 
+## Partitioning method
+
 The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
 It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
 
@@ -493,6 +495,8 @@ The most important cluster in this analysis is clearly the number 3 since it is 
 res.hk$centers
 ```
 
+## Model Based Clustering
+
 Since the biggest part of the dataset shows a gaussian distribution, a Gaussian finite mixture model fitted by EM algorithm should achieve good results in terms of clustering.
 
 ```{r}
@@ -508,4 +512,36 @@ mc$modelName
 Finally let's interpret the output of the clustering. Even this time there is one cluster over representative for the variable rainfall, presenting even higher value than before. As before the features presented by rainy days are almost the same, with the difference that this time the humidity is way higher but than before but the pressure is not that low.
 ```{r}
 mc$parameters$mean
+```
+
+## Hierarchical Clustering
+
+Since the dataset doesn't shows explicit cluster so far, we decided to exploit the cloud shape of the dataset applying the hierarchical clustering. The metric chosen to compute distances is the `euclidean`. As before the `silhouette` method helped us to cut the tree to have the optimal number of clusters.
+```{r}
+d <- dist(df, method = "euclidean")
+fviz_nbclust(df, FUN = hcut, method = "silhouette")
+```
+
+Then the hierarchical clustering algorithm have been executed considering the number of clusters equal to two (`k = 2`) allying all the known metrics to link clusters.
+```{r}
+hc.single   <- hclust(d, method="single")
+hc.complete <- hclust(d, method="complete")
+hc.average  <- hclust(d, method="average")
+hc.ward     <- hclust(d, method="ward.D")
+
+clust1 <- cutree(hc.single, k = 2)
+clust2 <- cutree(hc.complete, k = 2)
+clust3 <- cutree(hc.average, k = 2)
+clust4 <- cutree(hc.ward, k = 2)
+```
+
+The plotted graphs actually don't show kind of new information we didn't observed in the previous analysis: As for the single, average and complete method we can observe a clear connection (clustering) between the points on the extreme left, while the ward linking method suggest a more clear separation between the top and the bottom. The analysis by mean of the ward method actually reminds the group observed with kmeans algorithm.
+
+```{r}
+p1 <- fviz_cluster(list(data = d, cluster = clust1)) + ggtitle("single")
+p2 <- fviz_cluster(list(data = d, cluster = clust2)) + ggtitle("complete")
+p3 <- fviz_cluster(list(data = d, cluster = clust3)) + ggtitle("average")
+p4 <- fviz_cluster(list(data = d, cluster = clust4)) + ggtitle("ward.D")
+
+grid.arrange(p1, p2, p3, p4, nrow = 2)
 ```
