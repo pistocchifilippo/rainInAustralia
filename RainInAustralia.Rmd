@@ -339,7 +339,6 @@ write.csv(preprocessedTest,"scaledTest.csv", row.names = TRUE)
 ```{r}
 
 # To have reproducibility of the sampling
-set.seed(123)
 
 scaled <- read.csv('scaled.csv')
 
@@ -349,6 +348,7 @@ scaled <- scaled[sample(nrow(scaled),1000), ]
 
 # Visualization
 ```{r}
+set.seed(1)
 library(FactoMineR)
 scaled <- read.csv(file = 'scaled.csv',row.names = 1)
 scaled <- scaled[sample(nrow(scaled),1000), ]
@@ -430,10 +430,9 @@ The analysis will be performed considering just climatic descriptors.
 
 ```{r}
 # Need caret library
+set.seed(1)
 
 # To have reproducibility of the sampling
-set.seed(123)
-
 scaled <- read.csv('scaled.csv')
 
 # Removing the first column describing the number of the row
