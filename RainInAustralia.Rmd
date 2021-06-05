@@ -3,8 +3,8 @@ title: "RainInAustralia"
 author: "Filippo, Antoni, Cristina, Mengxue"
 date: "6/11/2021"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -33,29 +33,29 @@ library(cluster)
 
 The dataset is compromised of 23 variables, and is a timeseries of australian weather, which the purpose of predicting whether it would rain tomorrow.
 
-Date- Categorical variable, when the measurements were taken
-Location - Categorical variable, where the measurements were taken
-MinTemp - Numerical variable, minimal temperature observed that day
-MaxTemp - Numerical variable, maximal temperature observed that day
-Rainfall -
-Evaporation -
-Sunshine -
-WindGustDir - 
-WindGustSpeed -
-WindDir9am -
-WindDir3pm -
-WindSpeed9am -
-Windspeed3pm -
-Humidity9am -
-Humidity3pm -
-Pressure9am -
-Pressure3pm -
-Cloud9am -
-Cloud3pm -
-Temp9am - Numerical variable, temperature in Celsius at 9am
-Temp3pm - Numerical variable, temperature in Celsius at 3pm
-RainToday - Categorical variable, whether it rained today or not
-RainTomorrow - Categorical variable, whether tomorrow will rain or not
+**Date** - Categorical variable, when the measurements were taken
+**Location** - Categorical variable, where the measurements were taken
+**MinTemp** - Numerical variable, minimal temperature observed that day
+**MaxTemp** - Numerical variable, maximal temperature observed that day
+**Rainfall** -
+**Evaporation** -
+**Sunshine** -
+**WindGustDir** - 
+**WindGustSpeed** -
+**WindDir9am** -
+**WindDir3pm** -
+**WindSpeed9am** -
+**Windspeed3pm** -
+**Humidity9am** -
+**Humidity3pm** -
+**Pressure9am** -
+**Pressure3pm** -
+**Cloud9am** -
+**Cloud3pm** -
+**Temp9am** - Numerical variable, temperature in Celsius at 9am
+**Temp3pm** - Numerical variable, temperature in Celsius at 3pm
+**RainToday** - Categorical variable, whether it rained today or not
+**RainTomorrow** - Categorical variable, whether tomorrow will rain or not
 
 ```{r}
 
@@ -152,7 +152,7 @@ gg_miss_var(australianWeather,show_pct = TRUE) + labs(y = "Percentage of Missing
 ```
 We perform the imputation of the missing continous data, however, to avoid data leakage from train into test, we separate the data into train and test, and build the imputation MICE predictive mean model on the train data, and apply it to both train and test.
 
-```{r eval=FALSE}
+```{r}
 
 library(mice)
 library(tidyr)
@@ -179,7 +179,7 @@ We plot the density distributions of the data, we can observe a gaussian distrib
 All the categorical variables, with the exception of RainTomorrow and RainToday have mostly equal distributions, the only major imbalance being in these two variables.
 
 Rainfall does not conform to a Gaussian distribution, and a transformation must be applied specifically for it.
-```{r eval=FALSE}
+```{r}
 
 library(gridExtra)
 summary(australianWeatherNoNA)
@@ -242,7 +242,8 @@ g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + them
 A logarithmic transformation is applied to the rainfall variable, adding a constant value of 1 to deal with zeroes, this is to get Rainfall to a shape closer to a Gaussian, being the variable most far from a Gaussian distribution.
 
 We scale the data to a mean of 0 and variance of 1, so as to be compatible with methods sensible to distance metrics.
-```{r eval=FALSE}
+
+```{r}
 
 australianWeatherNoNA$Rainfall=log(australianWeatherNoNA$Rainfall+1)
 
@@ -253,8 +254,8 @@ scaled=as.data.frame(scaled)
 ```
 
 Our new data retains its original shape with the exception of Rainfall, which, even when transformed, is still far away from a Gaussian distribution, but it is however, closer to it.
-```{r eval=FALSE}
 
+```{r}
 library(gridExtra)
 summary(scaled)
 
@@ -314,7 +315,7 @@ g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + them
 ```
 
 While there appear to be some outliers, all the outliers in the boxplot almost in its entirety are extremely close together, suggesting highly skewed distributions, not outliers.
-```{r eval=FALSE}
+```{r}
 
 nums <- unlist(lapply(scaled, is.numeric))  
 ggplot(stack(scaled[,nums]), aes(x = ind, y = values)) +
@@ -323,39 +324,41 @@ ggplot(stack(scaled[,nums]), aes(x = ind, y = values)) +
 ```
 
 Train and test sets are separated for further use in the classification section.
-```{r eval=FALSE}
+```{r}
 preprocessedTrain=scaled[trainIndex,]
 preprocessedTest=scaled[-trainIndex,]
 ```
 
+### Deal with computational complexity
 
-```{r eval=FALSE}
+Then, as a checkpoint for the pre-processing phase, the datasets have been saved on memory in order to avoid executing all the tmie this costly phase.
+```{r}
 write.csv(scaled,"scaled.csv", row.names = TRUE)
 write.csv(preprocessedTrain,"scaledTrain.csv", row.names = TRUE)
 write.csv(preprocessedTest,"scaledTest.csv", row.names = TRUE)
 ```
 
-**To make fiesable in my computer the analysis the dataset have been sampled**
+To make feasible in our computers the analysis below the dataset will be sampled all the time keeping 1000 records (after reading it). To guarantee reproducibility of the sampling we used a seed `set.seed(1)`. The function `load_df` will be help in this operation.
 ```{r}
-
-# To have reproducibility of the sampling
-
-scaled <- read.csv('scaled.csv')
-
-# Random sampling
-scaled <- scaled[sample(nrow(scaled),1000), ]
+load_df <- function() {
+  scaled <- read.csv('scaled.csv')
+  
+  # To have reproducibility of the sampling
+  set.seed(1)
+  
+  # Random sampling
+  scaled <- scaled[sample(nrow(scaled),1000), ]
+}
 ```
 
 # Visualization
 ```{r}
-set.seed(1)
 library(FactoMineR)
-scaled <- read.csv(file = 'scaled.csv',row.names = 1)
-scaled <- scaled[sample(nrow(scaled),1000), ]
+load_df()
 ```
 
 ## LDA
-first we use numerical variables (except location, wind direction, season) to  apply lda.
+Firstly we use numerical variables (except location, wind direction, season) to apply LDA.
 ```{r, message=FALSE}
 library(MASS)
 (model.lda <- lda(RainTomorrow~., data = scaled[,-c(1,5,7,8,17,19)]))
@@ -365,7 +368,7 @@ Prior probabilities of groups defines the prior probability of the response clas
 
 Group Means defines the mean value (µk) for response classes for a particular X=x. This indicates means values of different features when they fall to a particular response class. 
 
-We see a clear difference between all the variables: they have opposite mean values for class RainTomorrow class. Especially for Humidity3pm, Humidity9am, Rainfall,Pressure9am, their absolute values vary greatly. The more the difference between mean, the easier it will be to classify observation. We can assume humidity, rainfall, pressure have more impact on the probabilities of rain on the second day; while temperature on 9am and minimum temperature have less impact.
+We see a clear difference between all the variables: they have opposite mean values for class RainTomorrow. Especially for Humidity3pm, Humidity9am, Rainfall,Pressure9am, their absolute values vary greatly. The more the difference between mean, the easier it will be to classify observation. We can assume humidity, rainfall, pressure have more impact on the probabilities of rain on the second day; while temperature on 9am and minimum temperature have less impact.
 ```{r}
 par(mar=c(7, 4.1, 4.1, 2.1))
 barplot(model.lda$means, beside=TRUE, legend=TRUE, las=2, col=c("#FC4E07","#00AFBB"))
@@ -387,6 +390,7 @@ ldahist(prediction$x[,1], g= prediction$class)
 ```
 
 The below figure shows how the data has been classified. The Predicted Group-No and Group-Yes has been colored with actual classification with red and blue color. The mix of color in the Group shows the incorrect classification prediction.
+
 ```{r}
 par(mfrow=c(1,1))
 plot(prediction$x[,1], prediction$class, col=ifelse(scaled$RainTomorrow=="No","#FC4E07","#00AFBB"))
@@ -394,7 +398,8 @@ plot(prediction$x[,1], prediction$class, col=ifelse(scaled$RainTomorrow=="No","#
 
 
 ## PCA
-apply pca only on the numerical variables
+Applying PCA only on the numerical variables (already standardized in preprocessing phase).
+
 ``` {r, include=TRUE, results='hide'}
 library(factoextra)
 res.pca <- prcomp(scaled[,-c(1,5,7,8,17,18,19)], scale = TRUE)
@@ -410,7 +415,8 @@ fviz_pca_biplot(res.pca, repel = TRUE,
 ```
 
 ## MFA 
-Divide variables into 8 group.
+Dividing variables into 8 group.
+
 ```{r}
 res.mfa <- MFA(scaled[,c(1,2,3,15,16,5,7,8,6,9,10,11,12,13,14,17,18,19)],group=c(1,4,3,3,2,2,2,1),type=c("n","s","n",rep("s",3),rep("n",2)),name.group=c("Location","Temperature","WinDir","WinSpeed","Humidity","Pressure", "RainToday/Tomorrow", "Season"))
 ```
@@ -418,36 +424,27 @@ res.mfa <- MFA(scaled[,c(1,2,3,15,16,5,7,8,6,9,10,11,12,13,14,17,18,19)],group=c
 
 ## MCA
 
-only use categorical variables to apply mca, RainToday and RainTomorrow as supplementary variables
+Only use categorical variables to apply mca, RainToday and RainTomorrow as supplementary variables.
+
 ```{r}
 res.mca <- MCA(scaled[,c(1,5,7,8,17,18,19)],quali.sup=5:6)
 ```
 
 #Clustering
 
-In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it to execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by **numeric variables**, therefore not numeric data will be discarded.
-The analysis will be performed considering just climatic descriptors.
+In the following chunk of code a tiny data pre processing will be applied to the dataset in order to prepare it to execute few clustering algorithms on top of it. To apply the clustering algorithms below the input dataset must be composed by **numeric variables**, therefore not numeric data will be discarded. The analysis will be performed considering just climatic descriptors.
 
 ```{r}
-# Need caret library
-set.seed(1)
-
-# To have reproducibility of the sampling
-scaled <- read.csv('scaled.csv')
-
 # Removing the first column describing the number of the row
-scaled <- scaled[2:ncol(scaled)]
+df <- load_df()[2:ncol(scaled)]
 
 # Keeping just numeric values
-df <- scaled %>% dplyr::select(where(is.numeric))
-
-# Random sampling
-df <- df[sample(nrow(df),1000), ]
+df <- df %>% dplyr::select(where(is.numeric))
 ```
 
 ## Partitioning method
 
-The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
+The first approach with clustering method have been with the traditional partition methodology applying K-Means algorithm, since is the computationally less expensive technique studied. The algorithm have been executed, looking for 2, 3, 4 and 5 clusters (`centers = x`) in order to look for some likely shapes of the clusters.
 It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
 
 ```{r}
