@@ -7,38 +7,78 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-
+We load the preprocessed data and then we get off the "Location" variable to predict "RainTomorrow" independently from the location in Australia. 
 ```{r}
-library(dplyr)
 # Read imputed data
 training_set <-read.csv("scaledTest.csv")
 test_set <-read.csv("scaledTrain.csv")
+```
 
+We create a function that helps us to arrange both the test and training set which needs the "plyr" library for the "revalue" funcion.
+
+```{r}
+library(plyr)
+
+arrange_data <- function(data){
+                data=as.data.frame(data)
+                # Omit Location column
+                data=subset(data, select = -c(Location,X))
+                # Ensure quantitative columns are numerical
+                data$WindGustDir=as.numeric(data$WindGustDir)
+                data$WindDir9am=as.numeric(data$WindDir9am)
+                data$WindDir3pm=as.numeric(data$WindDir3pm)
+                # Convert Categorigal columns to Numerical with an integer encoding.
+                data$RainTomorrow <- revalue(data$RainTomorrow, c("Yes"=1))
+                data$RainTomorrow <- revalue(data$RainTomorrow, c("No"=0))
+                data$RainToday <- revalue(data$RainToday, c("Yes"=1))
+                data$RainToday <- revalue(data$RainToday, c("No"=0))
+                data$Season  <- revalue(data$Season, c("winter"=1))
+                data$Season  <- revalue(data$Season, c("spring"=2))
+                data$Season  <- revalue(data$Season, c("summer"=3))
+                data$Season  <- revalue(data$Season, c("fall"=4))
+        return(data)
+}
+
+# Apply arrange function to both training and test set
 training_set <- arrange_data(training_set)
 test_set <- arrange_data(test_set)
-
-# Take a balanced set
-# training_set <-downSample(subset(training_set, select = -c(RainTomorrow)),training_set$RainTomorrow,list=FALSE,yname="RainTomorrow")
-# Create folds for cross validation
-library(caret)
-set.seed(1)
-folds <- createFolds(training_set$RainTomorrow, k=10)
 ```
 
 ```{r}
-file_name<-'results_unbalanced.xlsx'
-# Importing library to save the cross validation results
-library(xlsx)
-#Check its existence
-if (file.exists(file_name)) {
-  # Delete file if it exists
-  file.remove(file_name)
-}
+# @TODO:Comment that we have also tried to run everything with a balanced set ? # Take a balanced set
+# training_set <-downSample(subset(training_set, select = -c(RainTomorrow)),training_set$RainTomorrow,list=FALSE,yname="RainTomorrow")
+
+```
+
+Once we have the training_set and test_set ready we randomly create 10 different folds in the training set by using "caret" library.
+We are going to use them to obtain averaged results for each classification model we try and then we are going to compare the models.
+```{r}
+library(caret)
+set.seed(123)
+folds <- createFolds(training_set$RainTomorrow, k=10)
+```
+
+Importing library "dplyr" to use bind_rows() function
+```{r}
+library(dplyr)
+get_parameters <- function(cm, end_time){
+    tp <- cm[1,1]
+    tn <- cm[2,2]
+    fp <- cm[2,1]
+    fn <- cm[1,2]
+    accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
+    precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
+    recall <- cm[1,1] / (cm[1,1] + cm[1,2])
+    f_score = (2 * precision * recall) / (precision + recall)
+    selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
+    results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
+    return(results)
+    }
 ```
 
 # Run models for cross validation
 ```{r}
-# Logistic regression
+# Prepare logistic regression function to be run for each fold
 cvLogisticRegression <- lapply(folds, function(x){
   training_fold <- training_set[-x, ]
   test_fold <- training_set[x, ]
@@ -48,24 +88,17 @@ cvLogisticRegression <- lapply(folds, function(x){
   y_pred <- predict(classifier, test_fold)
   y_pred <- ifelse(y_pred > 0.5, 1, 0)
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
+  return(get_parameters(cm, end_time))
 })
-results_LogisticRegression <- bind_rows(cvLogisticRegression)
-write.xlsx(results_, file=file_name, sheetName="log_reg", row.names=FALSE)
+# Run Logistic regression for each fold and get the mean confussion matrix data 
+cvLogisticRegression.res <-cbind(
+  data.frame(model=c('Logistic regression')),
+  as.data.frame(t(colMeans(bind_rows(cvLogisticRegression)))))
+cvLogisticRegression.res
 ```
 
 ```{r}
-# k-NN
+# Prepare k-NN function to be run for each fold
 library(class)
 cvkNN <- lapply(folds, function(x){
   training_fold <- training_set[-x,]
@@ -77,26 +110,19 @@ cvkNN <- lapply(folds, function(x){
                 k = 7)
   end_time <- as.numeric(Sys.time() - start_time)
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
+  return(get_parameters(cm, end_time))
 })
-results_kNN <- bind_rows(cvkNN)
-write.xlsx(results_kNN, file=file_name, sheetName="kNN", row.names=FALSE, append=TRUE)
+# Run k-NN model for each fold and get the mean confussion matrix data 
+cvkNN.res <-cbind(
+  data.frame(model=c('k-NN')),
+  as.data.frame(t(colMeans(bind_rows(cvkNN)))))
+cvkNN.res
 ```
 
 
 ```{r}
+# Prepare Nayve Bayes function to be run for each fold
 library(e1071)
-# Naive Bayes
 cvNaiveBayes <- lapply(folds, function(x){
   training_fold <- training_set[-x, ]
   test_fold <- training_set[x, ]
@@ -107,24 +133,17 @@ cvNaiveBayes <- lapply(folds, function(x){
   end_time <- as.numeric(Sys.time() - start_time)
   y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
+  return(get_parameters(cm, end_time))
 })
-results_NaybeBayes <- bind_rows(cvNaiveBayes)
-write.xlsx(results_NaybeBayes, file=file_name, sheetName="NaiveBayes", row.names=FALSE, append=TRUE)
+# Run Naive Bayes model for each fold and get the mean confussion matrix data 
+cvNaiveBayes.res <-cbind(
+  data.frame(model=c('NaiveBayes')),
+  as.data.frame(t(colMeans(bind_rows(cvNaiveBayes)))))
+cvNaiveBayes.res
 ```
 
 ```{r}
-# Decision Tree
+# Prepare Decision Tree function to be run for each fold
 library(rpart)
 cvDecisionTree <- lapply(folds, function(x){
   training_fold <- training_set[-x, ]
@@ -134,20 +153,13 @@ cvDecisionTree <- lapply(folds, function(x){
   end_time <- as.numeric(Sys.time() - start_time)
   y_pred <- predict(classifier, newdata = test_fold, type = 'class')
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
+  return(get_parameters(cm, end_time))
 })
-results <- bind_rows(cvDecisionTree)
-write.xlsx(results, file=file_name, sheetName="DecisionTree", row.names=FALSE, append=TRUE)
+# Run Decision Tree model for each fold and get the mean confussion matrix data 
+cvDecisionTree.res <-cbind(
+  data.frame(model=c('DecisionTree')),
+  as.data.frame(t(colMeans(bind_rows(cvDecisionTree)))))
+cvDecisionTree.res
 ```
 
 ```{r}
@@ -164,90 +176,48 @@ cvRandomForest <- lapply(folds, function(x){
   end_time <- as.numeric(Sys.time() - start_time)
   y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
+  return(get_parameters(cm, end_time))
 })
-results_RandomForest <- bind_rows(cvRandomForest)
-write.xlsx(results_RandomForest, file=file_name, sheetName="RandomForest", row.names=FALSE, append=TRUE)
+
+# Run RandomForest model for each fold and get the mean confussion matrix data 
+cvRandomForest.res <-cbind(
+  data.frame(model=c('RandomForest')),
+  as.data.frame(t(colMeans(bind_rows(cvRandomForest)))))
+cvRandomForest.res
 ```
 
-```{r}
-# Kernel-SVM
-library(e1071)
-cvKernelSVM <- lapply(folds, function(x){
-  training_fold <- training_set[-x, ]
-  test_fold <- training_set[x, ]
-  start_time <- Sys.time()
-  classifier <- svm(RainTomorrow ~ ., 
-                    type = 'C-classification', 
-                    kernel = 'radial',
-                    data = training_fold)
-  end_time <- as.numeric(Sys.time() - start_time)
-  y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
-  cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
-})
-results_KernelSVM <- bind_rows(cvKernelSVM)
-write.xlsx(results_KernelSVM, file=file_name, sheetName="KernelSVM", row.names=FALSE, append=TRUE)
-```
 
+Random Forest parameter tunning
 ```{r}
-file_name<-'results_unbalanced_randomforest.xlsx'
-# Importing library to save the cross validation results
-library(xlsx)
-#Check its existence
-if (file.exists(file_name)) {
-  # Delete file if it exists
-  file.remove(file_name)
-}
-```
 
-```{r}
-# Random Forest
-cvRandomForest <- lapply(c(10,50,100,200,300,400,500,600), function(x){
-  training_fold <- training_set[-folds$Fold01,]
-  test_fold <- training_set[folds$Fold01,]
+parameter_tunning_RF <- function(ntree){
+  mapply(function(x, ntree){
+  training_fold <- training_set[-x,]
+  test_fold <- training_set[x,]
   start_time <- Sys.time()
   classifier <- randomForest( 
                     x = subset(training_fold, select = -c(RainTomorrow)),
                     y = training_fold$RainTomorrow,
-                    ntree = x)
+                    ntree = ntree)
   end_time <- as.numeric(Sys.time() - start_time)
   y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
   cm <- table(test_fold$RainTomorrow, y_pred)
-  tp <- cm[1,1]
-  tn <- cm[2,2]
-  fp <- cm[2,1]
-  fn <- cm[1,2]
-  accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-  precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-  recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-  f_score = (2 * precision * recall) / (precision + recall)
-  selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-  results <- data.frame(ntree=c(x),tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity),time=c(end_time))
-  return(results)
-})
-results_RandomForest_parameterTunning <- bind_rows(cvRandomForest)
-write.xlsx(results_RandomForest_parameterTunning, file=file_name, sheetName="RandomForest", row.names=FALSE, append=FALSE)
+  return(get_parameters(cm, end_time))
+  },ntree=ntree,x=folds)
+}
+
+cvRandomForest_parameterTunning <- lapply(c(2,5,10), function(x){
+  mid_result <- as.numeric(parameter_tunning_RF(x))
+  results_per_param <- as.data.frame(t(colMeans(rbind(mid_result))))
+  colnames(results_per_param)<-c("tp","tn","fp","fn","accuracy","precision","recall","f_score","selectivity") 
+  res <- cbind(data.frame(ntree=c(x)),results_per_param)
+  print(res)
+  })
+
+result <-data.frame(ntree=c(),tp=c(),tn=c(),fp=c(),fn=c(),accuracy=c(),precision=c(),recall=c(),f_score=c(),selectivity=c(),time=c())
+result <- bind_rows(cvRandomForest_parameterTunning)
+```
+
 ```
 
 # Final calculation with ntree = 200
