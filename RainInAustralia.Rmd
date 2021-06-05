@@ -417,7 +417,7 @@ plot(predmodel.test.lda$x[,1], predmodel.test.lda$class, col=ifelse(preprocessed
 
 
 ## Principal Components Analysis
-We apply PCA only on the numerical variables.
+We apply PCA only on the numerical variables (already standardized in preprocessing phase).
 ``` {r, include=TRUE, results='hide'}
 library(factoextra)
 res.pca <- prcomp(scaled[,-c(1,5,7,8,17,18,19)], scale = TRUE)
