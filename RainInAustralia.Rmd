@@ -340,21 +340,21 @@ write.csv(preprocessedTest,"scaledTest.csv", row.names = TRUE)
 
 To make feasible in our computers the analysis below the dataset will be sampled all the time keeping 1000 records (after reading it). To guarantee reproducibility of the sampling we used a seed `set.seed(1)`. The function `load_df` will be help in this operation.
 ```{r}
-load_df <- function() {
+load_df <- function(sampling_size) {
   scaled <- read.csv('scaled.csv')
   
   # To have reproducibility of the sampling
   set.seed(1)
   
   # Random sampling
-  scaled <- scaled[sample(nrow(scaled),1000), ]
+  scaled <- scaled[sample(nrow(scaled),sampling_size), ]
 }
 ```
 
 # Visualization
 ```{r}
 library(FactoMineR)
-load_df()
+load_df(10000)
 ```
 
 ## LDA
@@ -436,7 +436,8 @@ In the following chunk of code a tiny data pre processing will be applied to the
 
 ```{r}
 # Removing the first column describing the number of the row
-df <- load_df()[2:ncol(scaled)]
+loaded <- load_df(10000)
+df <- loaded[2:ncol(loaded)]
 
 # Keeping just numeric values
 df <- df %>% dplyr::select(where(is.numeric))
@@ -473,7 +474,7 @@ fviz_cluster(k2, geom = "point", data = df)
 ```
 
 As the silhouette method suggested will be studied the clustering with k equals to 2. For the interpretation of the obtained results, showing the centers `k2$centers` will help to associate each cluster to particular feature.
-It is clear that the first cluster (1) is more representative for the high **temperature** sampling while the second cluster (2) is more representative for the low temperatures. High temperature cluster and low temperature cluster differ also in term of **humidity** and **pressure**, presenting respectively low and high values.
+It is clear that the first cluster (1) is more representative for the high **temperature** sampling while the second cluster (2) is more representative for the low temperatures. High temperature cluster and low temperature cluster differ also in term of **humidity** and **pressure**, presenting lower values.
 ```{r}
 k2$centers
 ```
@@ -486,7 +487,7 @@ fviz_cluster(res.hk, palette = "jco", repel = TRUE, ggtheme = theme_classic())
 ```
 
 Adopting a higher number of cluster is easier to notice a higher variation in term of clusters specialization.
-The most important cluster in this analysis is clearly the number (2) since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values and low pressure and temperatures.
+The most important cluster in this analysis is clearly the number (2) since it is represented by a high value of the `Rainfall` attribute and therefore it is representing the rainy days, that are very important for our analysis, since the goal of the following prediction phase will be focused on classify correctly the variable `Raintomorrow`. According with this cluster, rainy days are characterized by high wind values, low pressure and temperatures and high humidity.
 ```{r}
 res.hk$centers
 ```
@@ -499,20 +500,26 @@ Since the biggest part of the dataset shows a gaussian distribution, a Gaussian 
 mc<- Mclust(df)
 fviz_mclust(mc, "uncertainty", palette = "jco")
 ```
-Gaussian mixture produced as output five clusters of shape **VEV**.
+
+Gaussian mixture produced as output 9 clusters of shape **VEV**. A such high number of cluster (9) suggest that, as we hypotized before, the shape of the data is a cloud point and that's why MBC is actually failing in findig clusters.
 ```{r}
 mc$G
 mc$modelName
 ```
 
-Finally let's interpret the output of the clustering. Even this time there is one cluster over representative for the variable rainfall, presenting even higher value than before. As before the features presented by rainy days are almost the same, with the difference that this time the humidity is way higher but than before but the pressure is not that low.
-```{r}
-mc$parameters$mean
-```
-
 ## Hierarchical Clustering
 
 Since the dataset doesn't shows explicit cluster so far, we decided to exploit the cloud shape of the dataset applying the hierarchical clustering. The metric chosen to compute distances is the `euclidean`. As before the `silhouette` method helped us to cut the tree to have the optimal number of clusters.
+
+```{r}
+# Removing the first column describing the number of the row
+loaded <- load_df(1000)
+df <- loaded[2:ncol(loaded)]
+
+# Keeping just numeric values
+df <- df %>% dplyr::select(where(is.numeric))
+```
+
 ```{r}
 d <- dist(df, method = "euclidean")
 fviz_nbclust(df, FUN = hcut, method = "silhouette")
@@ -531,7 +538,7 @@ clust3 <- cutree(hc.average, k = 2)
 clust4 <- cutree(hc.ward, k = 2)
 ```
 
-The plotted graphs actually don't show kind of new information we didn't observed in the previous analysis: As for the single, average and complete method we can observe a clear connection (clustering) between the points on the extreme left, while the ward linking method suggest a more clear separation between the top and the bottom. The analysis by mean of the ward method actually reminds the group observed with kmeans algorithm.
+The plotted graphs actually don't show kind of new information we didn't observed in the previous analysis: As for the single and average method we can observe a clear connection (clustering) between the points on the extreme left, while the ward and complete linking method suggest a more clear separation between the top and the bottom. The analysis by mean of the ward method actually reminds the group observed with kmeans algorithm.
 
 ```{r}
 p1 <- fviz_cluster(list(data = d, cluster = clust1)) + ggtitle("single")
