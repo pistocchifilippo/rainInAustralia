@@ -18,44 +18,43 @@ knitr::opts_chunk$set(fig.path='Figs/', echo=FALSE, warning=FALSE, message=FALSE
 
 
 ```{r}
-library(dplyr)
-library(ggplot2)
 library(kableExtra)
-library(gridExtra)
 library(stats)
-library(factoextra)
-library(FactoMineR)
-library(mclust)
-library(cluster)
 ```
 
-# Dataset description
+Problem description:
+
+The problem is to predict whether it will rain the next day or not based on measurements taken by the australian's government meteorological department. The measurements have been taken daily in various regions of Australia, with over 10 years of measurements. Due to the nature of the instruments used, some measurements are missing heavily in some areas, or are mostly incomplete. 
+
+The purpose of our work is to find insights into the weather data, to see if we can ascend some patterns that might help better understand rain prediction.
+
+Dataset description:
 
 The dataset is compromised of 23 variables, and is a timeseries of australian weather, which the purpose of predicting whether it would rain tomorrow.
 
-**Date** - Categorical variable, when the measurements were taken
-**Location** - Categorical variable, where the measurements were taken
-**MinTemp** - Numerical variable, minimal temperature observed that day
-**MaxTemp** - Numerical variable, maximal temperature observed that day
-**Rainfall** -
-**Evaporation** -
-**Sunshine** -
-**WindGustDir** - 
-**WindGustSpeed** -
-**WindDir9am** -
-**WindDir3pm** -
-**WindSpeed9am** -
-**Windspeed3pm** -
-**Humidity9am** -
-**Humidity3pm** -
-**Pressure9am** -
-**Pressure3pm** -
-**Cloud9am** -
-**Cloud3pm** -
-**Temp9am** - Numerical variable, temperature in Celsius at 9am
-**Temp3pm** - Numerical variable, temperature in Celsius at 3pm
-**RainToday** - Categorical variable, whether it rained today or not
-**RainTomorrow** - Categorical variable, whether tomorrow will rain or not
+Date - Categorical variable, when the measurements were taken
+Location - Categorical variable, where the measurements were taken
+MinTemp - Numerical variable, minimal temperature observed that day
+MaxTemp - Numerical variable, maximal temperature observed that day
+Rainfall - Numerical variable, precipitation in the 24hours to 9am
+Evaporation - Numerical variable, "Class A" pan evaporation in the 24 hours to 9am
+Sunshine - Numerical variablem, bright sunshine hours in the 24 hours to midnight
+WindGustDir - Categorical variable, direction of strongest gust in the 24 hours to midnight, 16 compass points
+WindGustSpeed - Numerical variable, speed of strongest wind gust in the 24 hours to midnight
+WindDir9am - Categorical variable, wind direction averaged over 10 minutes prior to 9 am
+WindDir3pm - Categorical variable, wind direction averaged over 10 minutes prior to 3 pm
+WindSpeed9am - Numerical variable, wind speed averaged over 10 minutes prior to 9 am
+Windspeed3pm - Numerical variable, wind speed averaged over 10 minutes prior to 9 am
+Humidity9am - Numerical variable, relative humidity at 9 am
+Humidity3pm - Numerical variable, relative humidity at 3 pm
+Pressure9am - Numerical variable, atmospheric pressure reduced to mean sea level at 9 am
+Pressure3pm - Numerical variable, atmospheric pressure reduced to mean sea level at 3 pm
+Cloud9am - Numerical variable, fraction of sky obscured by cloud at 9 am
+Cloud3pm - Numerical variable, fraction of sky obscured by cloud at 3 pm
+Temp9am - Numerical variable, temperature in Celsius at 9am
+Temp3pm - Numerical variable, temperature in Celsius at 3pm
+RainToday - Categorical variable, whether it rained today or not
+RainTomorrow - Categorical variable, whether tomorrow will rain or not
 
 ```{r}
 
@@ -63,6 +62,7 @@ set.seed(1)
 
 australianWeather <- read.csv(file = 'weatherAUS.csv')
 ```
+
 
 We perform a basic visualization, first of the correlation between variables, which isn't significant with the exception of variables recorded in the same day, that is, those measurements taken at 9am and 3pm, this helps us see that there's an important temporal component in the same day.
 ```{r}
@@ -157,6 +157,9 @@ We perform the imputation of the missing continous data, however, to avoid data 
 library(mice)
 library(tidyr)
 
+
+
+
 completeVector=c(1:nrow(australianWeather))
 
 completeVector[trainIndex]=TRUE
@@ -168,7 +171,10 @@ imputed <- mice(australianWeather, m=5,ignore = cVec, maxit = 5, method = 'pmm',
 
 australianWeatherNoNA=complete(imputed,1)
 
+
 gg_miss_var(australianWeatherNoNA,show_pct = TRUE) + labs(y = "Percentage of Missing values")
+
+
 
 gg_miss_var(australianWeatherNoNA,show_pct = TRUE) + labs(y = "Percentage of Missing values")
 
@@ -242,10 +248,10 @@ g3 + theme(legend.position="none"),g4 + theme(legend.position="none"), g5 + them
 A logarithmic transformation is applied to the rainfall variable, adding a constant value of 1 to deal with zeroes, this is to get Rainfall to a shape closer to a Gaussian, being the variable most far from a Gaussian distribution.
 
 We scale the data to a mean of 0 and variance of 1, so as to be compatible with methods sensible to distance metrics.
-
 ```{r}
 
 australianWeatherNoNA$Rainfall=log(australianWeatherNoNA$Rainfall+1)
+
 
 scaled <- lapply(australianWeatherNoNA, function(x) if(is.numeric(x)){
                      scale(x, center=TRUE, scale=TRUE)
@@ -254,8 +260,8 @@ scaled=as.data.frame(scaled)
 ```
 
 Our new data retains its original shape with the exception of Rainfall, which, even when transformed, is still far away from a Gaussian distribution, but it is however, closer to it.
-
 ```{r}
+
 library(gridExtra)
 summary(scaled)
 
@@ -323,10 +329,14 @@ ggplot(stack(scaled[,nums]), aes(x = ind, y = values)) +
 
 ```
 
-Train and test sets are separated for further use in the classification section.
+Train and test sets are separated for further use in the classification section. The validation method to follow is as follows:
+
+The dataset is divided into train and test, with the train and test data being imputed with the imputation model built from train data. The train data is to be divided into 10 folds for cross-validation, using cross-validation results to do model selection, at which point model validation over the model selected is performed with the test set.
+
 ```{r}
 preprocessedTrain=scaled[trainIndex,]
 preprocessedTest=scaled[-trainIndex,]
+
 ```
 
 ### Deal with computational complexity
@@ -354,7 +364,7 @@ load_df <- function(sampling_size) {
 # Visualization
 ```{r}
 library(FactoMineR)
-load_df(10000)
+load_df(1000)
 ```
 
 ## LDA
@@ -449,6 +459,9 @@ The first approach with clustering method have been with the traditional partiti
 It is plain that datas have the hape of a cloud, therefore it is not going to be possible distinguish clean clusters.
 
 ```{r}
+library(mclust)
+library(cluster)
+
 k2 <- kmeans(df, centers = 2, nstart = 25)
 k3 <- kmeans(df, centers = 3, nstart = 25)
 k4 <- kmeans(df, centers = 4, nstart = 25)
