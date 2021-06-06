@@ -240,23 +240,16 @@ Finally, we are going to train the final model, a Random Forest with 300 trees w
 # Final calculation with ntree = 300
 ```{r}
 # Random Forest
+start_time <- Sys.time()
 classifier <- randomForest( 
                   x = subset(training_set, select = -c(RainTomorrow)),
                   y = training_set$RainTomorrow,
                   ntree = 300)
+end_time <- as.numeric(Sys.time() - start_time)
 y_pred <- predict(classifier, subset(test_set, select = -c(RainTomorrow)))
 cm <- table(test_set$RainTomorrow, y_pred)
-tp <- cm[1,1]
-tn <- cm[2,2]
-fp <- cm[2,1]
-fn <- cm[1,2]
-accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-f_score = (2 * precision * recall) / (precision + recall)
-selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-results <- data.frame(ntree=c(200),tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity))
-results
+result_final <-get_parameters(cm,end_time)
+result_final
 ```
 
-The results shows that the model works pretty good. The confussion matrix metrics we have obtained are almost the same we have got in the cross validation results and we can say that our model was not overfitted.
+The results shows that the model works pretty good having smothly a lower balanced accuracy than with the training set as expected. 
