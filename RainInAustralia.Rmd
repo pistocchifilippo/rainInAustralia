@@ -818,3 +818,7 @@ result_final
 ```
 
 The results shows that the model works pretty good having smothly a lower balanced accuracy than with the training set as expected. 
+
+# Scientific and personal conclusions
+
+Rain is extremely dependent on the weather factors of the day before, as would be expected. However we can conclude that some factors are more important, and those are the Rainfall, the atmospheric pressure, the temperature at 3pm and the humidity, as was more clearly seen in the LDA section. Unbalancedness has a major effect on precision, but since the data is so separable, this wasn't a major issue in this work. We can also see that the clusters we obtained in clustering had little to do with rain or not, and were simply ways of partitioning a massive point cloud, since weather varies slowly and our measurements were taken daily.
