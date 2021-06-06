@@ -248,7 +248,8 @@ classifier <- randomForest(
 end_time <- as.numeric(Sys.time() - start_time)
 y_pred <- predict(classifier, subset(test_set, select = -c(RainTomorrow)))
 cm <- table(test_set$RainTomorrow, y_pred)
-get_parameters(cm,end_time)
+result_final <-get_parameters(cm,end_time)
+result_final
 ```
 
-The results shows that the model works pretty good. The confussion matrix metrics we have obtained are almost the same we have got in the cross validation results and we can say that our model was not overfitted.
+The results shows that the model works pretty good having smothly a lower balanced accuracy than with the training set as expected. 
