@@ -589,3 +589,257 @@ p4 <- fviz_cluster(list(data = d, cluster = clust4)) + ggtitle("ward.D")
 
 grid.arrange(p1, p2, p3, p4, nrow = 2)
 ```
+
+# Classification
+
+We load the preprocessed data and then we get off the "Location" variable to predict "RainTomorrow" independently from the specific location. 
+
+```{r}
+# Read imputed data
+training_set <-read.csv("scaledTest.csv")
+test_set <-read.csv("scaledTrain.csv")
+```
+
+We create a function that helps us to arrange both the test and training set which needs the "plyr" library for the "revalue" funcion.
+
+```{r}
+library(plyr)
+
+arrange_data <- function(data){
+                data=as.data.frame(data)
+                # Omit Location column
+                data=subset(data, select = -c(Location,X))
+                # Ensure quantitative columns are numerical
+                data$WindGustDir=as.numeric(data$WindGustDir)
+                data$WindDir9am=as.numeric(data$WindDir9am)
+                data$WindDir3pm=as.numeric(data$WindDir3pm)
+                # Convert Categorigal columns to Numerical with an integer encoding.
+                data$RainTomorrow <- revalue(data$RainTomorrow, c("Yes"=1))
+                data$RainTomorrow <- revalue(data$RainTomorrow, c("No"=0))
+                data$RainToday <- revalue(data$RainToday, c("Yes"=1))
+                data$RainToday <- revalue(data$RainToday, c("No"=0))
+                data$Season  <- revalue(data$Season, c("winter"=1))
+                data$Season  <- revalue(data$Season, c("spring"=2))
+                data$Season  <- revalue(data$Season, c("summer"=3))
+                data$Season  <- revalue(data$Season, c("fall"=4))
+        return(data)
+}
+
+# Apply arrange function to both training and test set
+training_set <- arrange_data(training_set)
+test_set <- arrange_data(test_set)
+```
+
+```{r}
+# @TODO:Comment that we have also tried to run everything with a balanced set ? # Take a balanced set
+# training_set <-downSample(subset(training_set, select = -c(RainTomorrow)),training_set$RainTomorrow,list=FALSE,yname="RainTomorrow")
+
+```
+
+Once we have the training_set and test_set ready we randomly split the training set into 10 different folds by using "caret" library. We carry out the cross validation with the averaged results for each classification model.
+```{r}
+library(caret)
+set.seed(123)
+folds <- createFolds(training_set$RainTomorrow, k=10)
+```
+We create a function to automatize the calculation of the derived confussion matrix values such as the accuracy, precision, recall, f_score and selectivity. 
+```{r}
+# Importing library "dplyr" to use bind_rows() function
+library(dplyr)
+get_parameters <- function(cm, end_time){
+    tp <- cm[1,1]
+    tn <- cm[2,2]
+    fp <- cm[2,1]
+    fn <- cm[1,2]
+    accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
+    precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
+    recall <- cm[1,1] / (cm[1,1] + cm[1,2])
+    f_score = (2 * precision * recall) / (precision + recall)
+    selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
+    balan_accuracy <- (recall + selectivity)/2
+    results <- data.frame(tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),selectivity=c(selectivity),balan_accuracy=c(balan_accuracy),f_score=c(f_score),time=c(end_time))
+    return(results)
+    }
+```
+
+Now, we apply several classification models to the dataset for each fold and then we compute the averages of the confussion matrix metrics.
+
+```{r}
+# Prepare logistic regression function to be run for each fold
+cvLogisticRegression <- lapply(folds, function(x){
+  training_fold <- training_set[-x, ]
+  test_fold <- training_set[x, ]
+  start_time <- Sys.time()
+  classifier <- glm(RainTomorrow ~ ., family = binomial, data = training_fold)
+  end_time <- as.numeric(Sys.time() - start_time)
+  y_pred <- predict(classifier, test_fold)
+  y_pred <- ifelse(y_pred > 0.5, 1, 0)
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+})
+# Run Logistic regression for each fold and get the mean confussion matrix metrics 
+cvLogisticRegression.res <-cbind(
+  data.frame(model=c('Logistic regression')),
+  as.data.frame(t(colMeans(bind_rows(cvLogisticRegression)))))
+cvLogisticRegression.res
+```
+
+```{r}
+# Prepare k-NN function to be run for each fold
+library(class)
+cvkNN <- lapply(folds, function(x){
+  training_fold <- training_set[-x,]
+  test_fold <- training_set[x,]
+  start_time <- Sys.time()
+  y_pred <- knn(subset(training_fold, select = -c(RainTomorrow)),
+                subset(test_fold, select = -c(RainTomorrow)),
+                cl = training_fold$RainTomorrow, 
+                k = 7)
+  end_time <- as.numeric(Sys.time() - start_time)
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+})
+# Run k-NN model for each fold and get the mean confussion matrix metrics 
+cvkNN.res <-cbind(
+  data.frame(model=c('k-NN')),
+  as.data.frame(t(colMeans(bind_rows(cvkNN)))))
+cvkNN.res
+```
+
+
+```{r}
+# Prepare Nayve Bayes function to be run for each fold
+library(e1071)
+cvNaiveBayes <- lapply(folds, function(x){
+  training_fold <- training_set[-x, ]
+  test_fold <- training_set[x, ]
+  start_time <- Sys.time()
+  classifier <- naiveBayes( 
+                x = subset(training_fold, select = -c(RainTomorrow)),
+                y = training_fold$RainTomorrow)
+  end_time <- as.numeric(Sys.time() - start_time)
+  y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+})
+# Run Naive Bayes model for each fold and get the mean confussion matrix metrics 
+cvNaiveBayes.res <-cbind(
+  data.frame(model=c('NaiveBayes')),
+  as.data.frame(t(colMeans(bind_rows(cvNaiveBayes)))))
+cvNaiveBayes.res
+```
+
+```{r}
+# Prepare Decision Tree function to be run for each fold
+library(rpart)
+cvDecisionTree <- lapply(folds, function(x){
+  training_fold <- training_set[-x, ]
+  test_fold <- training_set[x, ]
+  start_time <- Sys.time()
+  classifier <- rpart(RainTomorrow ~ ., data = training_fold)
+  end_time <- as.numeric(Sys.time() - start_time)
+  y_pred <- predict(classifier, newdata = test_fold, type = 'class')
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+})
+# Run Decision Tree model for each fold and get the mean confussion matrix metrics 
+cvDecisionTree.res <-cbind(
+  data.frame(model=c('DecisionTree')),
+  as.data.frame(t(colMeans(bind_rows(cvDecisionTree)))))
+cvDecisionTree.res
+```
+
+```{r}
+# Prepare Random Forest function to be run for each fold
+library(randomForest)
+cvRandomForest <- lapply(folds, function(x){
+  training_fold <- training_set[-x, ]
+  test_fold <- training_set[x, ]
+  start_time <- Sys.time()
+  classifier <- randomForest( 
+                    x = subset(training_fold, select = -c(RainTomorrow)),
+                    y = training_fold$RainTomorrow,
+                    ntree = 300)
+  end_time <- as.numeric(Sys.time() - start_time)
+  y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+})
+
+# Run RandomForest model for each fold and get the mean confussion matrix metrics 
+cvRandomForest.res <-cbind(
+  data.frame(model=c('RandomForest')),
+  as.data.frame(t(colMeans(bind_rows(cvRandomForest)))))
+cvRandomForest.res
+```
+
+Finally, we can compare the results of the classification models.
+```{r}
+# Row concatenation of results per each model
+rbind(cvLogisticRegression.res,cvkNN.res,cvNaiveBayes.res,cvDecisionTree.res,cvRandomForest.res)
+```
+Looking at the table we can see that results are quite good in general. However, we have to take into account that our data was so unbalanced with about 80% of days with no rain. It means that we have to revise the different confussion matrix values to interpret the performance of the classification.
+
+A typicall measure for model comparison is the accuracy, however in the case of imbalanced data it can be misleading. For this reason, we can use the balanced accuracy which somewhat normalizes true positive and true negative predictions by the total number of positive and negative divided by two. Therefore, accounting this metric we can conclude that the best model is Random Forest due to the fact that it has a higher value.
+
+Note that we have included the total computation time to this table. We can see that despite being the best model, Random Forest is the slowest model, being Naibe Bayes the fastest one. Thus, in case we would need a fast model to train we could have chosen the second best model which is actually Naibe Bayes. 
+
+In order to have the optimal classifier we need to perform a parameter tunning over Random Forest to optimize the "ntree" parameter which is the number of trees to grow during the algorithm. Hence, we are going to use again cross validation with the same 10 folds but now we are going to compare the performance of Random forests with the "ntree" values.
+
+```{r}
+# Function that runs Random forest for each fold with the input "ntree" value
+parameter_tunning_RF <- function(ntree){
+  mapply(function(x, ntree){
+  training_fold <- training_set[-x,]
+  test_fold <- training_set[x,]
+  start_time <- Sys.time()
+  classifier <- randomForest( 
+                    x = subset(training_fold, select = -c(RainTomorrow)),
+                    y = training_fold$RainTomorrow,
+                    ntree = ntree)
+  end_time <- as.numeric(Sys.time() - start_time)
+  y_pred <- predict(classifier, subset(test_fold, select = -c(RainTomorrow)))
+  cm <- table(test_fold$RainTomorrow, y_pred)
+  return(get_parameters(cm, end_time))
+  },ntree=ntree,x=folds)
+}
+
+# Function that executes the previous function for several "ntree" values
+cvRandomForest_parameterTunning <- lapply(c(10,50,100,200,300,400,500), function(x){
+  mid_result <- parameter_tunning_RF(x)
+  means <- colMeans(as.data.frame(lapply(as.data.frame(t(mid_result)),as.numeric)))
+  res <- cbind(data.frame(ntree=c(x)),t(means))
+  return(res)
+  })
+# Concatenating rows per "ntree" value confussion matrix metrics
+result <- bind_rows(cvRandomForest_parameterTunning)
+result
+```
+
+Looking at the results of the cross validation we can consider that the value for the balanced accuracy is converging to 0.721. Therefore, with a "ntree" value of 200 we are getting good enough results without making the computation higly time consuming.
+
+Finally, we are going to train the final model, a Random Forest with 200 trees with the complete training set and we are going to test it with the complete test set.
+# Final calculation with ntree = 200
+```{r}
+# Random Forest
+classifier <- randomForest( 
+                  x = subset(training_set, select = -c(RainTomorrow)),
+                  y = training_set$RainTomorrow,
+                  ntree = 200)
+y_pred <- predict(classifier, subset(test_set, select = -c(RainTomorrow)))
+cm <- table(test_set$RainTomorrow, y_pred)
+tp <- cm[1,1]
+tn <- cm[2,2]
+fp <- cm[2,1]
+fn <- cm[1,2]
+accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
+precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
+recall <- cm[1,1] / (cm[1,1] + cm[1,2])
+f_score = (2 * precision * recall) / (precision + recall)
+selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
+results <- data.frame(ntree=c(200),tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity))
+results
+```
+
+The results shows that the model works pretty good. The confussion matrix metrics we have obtained are almost the same we have got in the cross validation results and we can say that our model was not overfitted.
+
