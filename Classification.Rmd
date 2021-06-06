@@ -228,19 +228,22 @@ cvRandomForest_parameterTunning <- lapply(c(10,50,100,200,300,400,500), function
   })
 # Concatenating rows per "ntree" value confussion matrix metrics
 result <- bind_rows(cvRandomForest_parameterTunning)
+```
+
+Looking at the results of the cross validation we can consider that the value for the balanced accuracy is arround to 0.72 with the highest one on ntree=300. 
+
+```{r}
 result
 ```
 
-Looking at the results of the cross validation we can consider that the value for the balanced accuracy is converging to 0.721. Therefore, with a "ntree" value of 200 we are getting good enough results without making the computation higly time consuming.
-
-Finally, we are going to train the final model, a Random Forest with 200 trees with the complete training set and we are going to test it with the complete test set.
-# Final calculation with ntree = 200
+Finally, we are going to train the final model, a Random Forest with 300 trees with the complete training set and we are going to test it with the complete test set.
+# Final calculation with ntree = 300
 ```{r}
 # Random Forest
 classifier <- randomForest( 
                   x = subset(training_set, select = -c(RainTomorrow)),
                   y = training_set$RainTomorrow,
-                  ntree = 200)
+                  ntree = 300)
 y_pred <- predict(classifier, subset(test_set, select = -c(RainTomorrow)))
 cm <- table(test_set$RainTomorrow, y_pred)
 tp <- cm[1,1]
