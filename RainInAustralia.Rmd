@@ -596,7 +596,7 @@ We load the preprocessed data and then we get off the "Location" variable to pre
 
 ```{r}
 # Read imputed data
-training_set <-read.csv("scaledTest.csv")
+training_set <- read.csv("scaledTest.csv")
 test_set <-read.csv("scaledTrain.csv")
 ```
 
@@ -610,9 +610,9 @@ arrange_data <- function(data){
                 # Omit Location column
                 data=subset(data, select = -c(Location,X))
                 # Ensure quantitative columns are numerical
-                data$WindGustDir=as.numeric(data$WindGustDir)
-                data$WindDir9am=as.numeric(data$WindDir9am)
-                data$WindDir3pm=as.numeric(data$WindDir3pm)
+                data$WindGustDir=as.factor(data$WindGustDir)
+                data$WindDir9am=as.factor(data$WindDir9am)
+                data$WindDir3pm=as.factor(data$WindDir3pm)
                 # Convert Categorigal columns to Numerical with an integer encoding.
                 data$RainTomorrow <- revalue(data$RainTomorrow, c("Yes"=1))
                 data$RainTomorrow <- revalue(data$RainTomorrow, c("No"=0))
@@ -622,6 +622,8 @@ arrange_data <- function(data){
                 data$Season  <- revalue(data$Season, c("spring"=2))
                 data$Season  <- revalue(data$Season, c("summer"=3))
                 data$Season  <- revalue(data$Season, c("fall"=4))
+                data$RainToday  = as.factor(data$RainToday)
+                data$RainTomorrow  = as.factor(data$RainTomorrow)
         return(data)
 }
 
@@ -682,28 +684,6 @@ cvLogisticRegression.res <-cbind(
   data.frame(model=c('Logistic regression')),
   as.data.frame(t(colMeans(bind_rows(cvLogisticRegression)))))
 cvLogisticRegression.res
-```
-
-```{r}
-# Prepare k-NN function to be run for each fold
-library(class)
-cvkNN <- lapply(folds, function(x){
-  training_fold <- training_set[-x,]
-  test_fold <- training_set[x,]
-  start_time <- Sys.time()
-  y_pred <- knn(subset(training_fold, select = -c(RainTomorrow)),
-                subset(test_fold, select = -c(RainTomorrow)),
-                cl = training_fold$RainTomorrow, 
-                k = 7)
-  end_time <- as.numeric(Sys.time() - start_time)
-  cm <- table(test_fold$RainTomorrow, y_pred)
-  return(get_parameters(cm, end_time))
-})
-# Run k-NN model for each fold and get the mean confussion matrix metrics 
-cvkNN.res <-cbind(
-  data.frame(model=c('k-NN')),
-  as.data.frame(t(colMeans(bind_rows(cvkNN)))))
-cvkNN.res
 ```
 
 
@@ -776,7 +756,7 @@ cvRandomForest.res
 Finally, we can compare the results of the classification models.
 ```{r}
 # Row concatenation of results per each model
-rbind(cvLogisticRegression.res,cvkNN.res,cvNaiveBayes.res,cvDecisionTree.res,cvRandomForest.res)
+rbind(cvLogisticRegression.res,cvNaiveBayes.res,cvDecisionTree.res,cvRandomForest.res)
 ```
 Looking at the table we can see that results are quite good in general. However, we have to take into account that our data was so unbalanced with about 80% of days with no rain. It means that we have to revise the different confussion matrix values to interpret the performance of the classification.
 
@@ -813,33 +793,28 @@ cvRandomForest_parameterTunning <- lapply(c(10,50,100,200,300,400,500), function
   })
 # Concatenating rows per "ntree" value confussion matrix metrics
 result <- bind_rows(cvRandomForest_parameterTunning)
+```
+
+Looking at the results of the cross validation we can consider that the value for the balanced accuracy is arround to 0.72 with the highest one on ntree=300. 
+
+```{r}
 result
 ```
 
-Looking at the results of the cross validation we can consider that the value for the balanced accuracy is converging to 0.721. Therefore, with a "ntree" value of 200 we are getting good enough results without making the computation higly time consuming.
-
-Finally, we are going to train the final model, a Random Forest with 200 trees with the complete training set and we are going to test it with the complete test set.
-# Final calculation with ntree = 200
+Finally, we are going to train the final model, a Random Forest with 300 trees with the complete training set and we are going to test it with the complete test set.
+# Final calculation with ntree = 300
 ```{r}
 # Random Forest
+start_time <- Sys.time()
 classifier <- randomForest( 
                   x = subset(training_set, select = -c(RainTomorrow)),
                   y = training_set$RainTomorrow,
-                  ntree = 200)
+                  ntree = 300)
+end_time <- as.numeric(Sys.time() - start_time)
 y_pred <- predict(classifier, subset(test_set, select = -c(RainTomorrow)))
 cm <- table(test_set$RainTomorrow, y_pred)
-tp <- cm[1,1]
-tn <- cm[2,2]
-fp <- cm[2,1]
-fn <- cm[1,2]
-accuracy <- (cm[1,1] + cm[2,2])/ (cm[1,1] + cm[2,2] + cm[1,2] + cm[2,1])
-precision <- cm[1,1] / (cm[1,1] +  cm[2,1])
-recall <- cm[1,1] / (cm[1,1] + cm[1,2])
-f_score = (2 * precision * recall) / (precision + recall)
-selectivity <- cm[2,2]/ (cm[2,2] + cm[2,1])
-results <- data.frame(ntree=c(200),tp=c(tp),tn=c(tn),fp=c(fp),fn=c(fn),accuracy=c(accuracy),precision=c(precision),recall=c(recall),f_score=c(f_score),selectivity=c(selectivity))
-results
+result_final <-get_parameters(cm,end_time)
+result_final
 ```
 
-The results shows that the model works pretty good. The confussion matrix metrics we have obtained are almost the same we have got in the cross validation results and we can say that our model was not overfitted.
-
+The results shows that the model works pretty good having smothly a lower balanced accuracy than with the training set as expected. 
